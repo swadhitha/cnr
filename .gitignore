@@ -1,0 +1,10 @@
+# Large model files excluded from GitHub (exceed 100MB limit)
+puea_detection/models/random_forest.pkl
+puea_detection/models/voting_ensemble.pkl
+
+# Keep smaller model files tracked:
+# - knn.pkl
+# - svm.pkl
+# - ann.pkl
+# - scaler.pkl
+# - xgboost.pkl
