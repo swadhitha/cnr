@@ -1,10 +1,30 @@
+# Python environment / build artefacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Logs
+*.log
+
 # Large model files excluded from GitHub (exceed 100MB limit)
 puea_detection/models/random_forest.pkl
 puea_detection/models/voting_ensemble.pkl
 
-# Keep smaller model files tracked:
+# Keep smaller baseline model files tracked:
 # - knn.pkl
 # - svm.pkl
 # - ann.pkl
 # - scaler.pkl
 # - xgboost.pkl
+
+# Adaptive-PUEA experiments: regenerable outputs (reproduce with run_simulation.py,
+# run_adaptive_experiment.py, evaluate_adaptive.py). Summary CSVs, the report,
+# calibration JSONs and adaptive_*.png figures stay tracked.
+puea_detection/data/simulation/
+puea_detection/models/simulation/
+puea_detection/reports/adaptive/traces/
+
+# OS / editor
+.DS_Store

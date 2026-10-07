@@ -1,0 +1,211 @@
+{
+  "_doc": "Single source of truth for the Physically Anchored Adaptive PUEA experiments. Every experimental constant lives here; Python modules only read it. Units: positions in metres inside an area_size x area_size square, powers in dBm, gains/offsets in dB. See docs/adaptive_puea.md for the meaning of each block.",
+
+  "seeds": [0, 1, 2, 3, 4],
+
+  "regimes": {
+    "_doc": "Each regime re-runs every scenario with the listed overrides deep-merged into this config. 'default' is the easy case for the physical anchor (40 SUs, 4 dB shadowing); 'weak_anchor' is a regime where the anchor's spatial resolution is poor (see resolution_sweep), so the other components must carry more of the work.",
+    "default": {},
+    "weak_anchor": {"geometry": {"n_sus": 20}, "channel": {"shadow_sigma_db": 8.0}},
+    "correlated_shadowing": {"channel": {"shadow_time_correlation": 0.9}}
+  },
+
+  "geometry": {
+    "n_sus": 40,
+    "area_size": 100.0,
+    "pu_xy": [15.0, 85.0],
+    "min_su_distance": 1.0,
+    "_doc": "SUs are placed uniformly at random (per seed). Distances are clipped at min_su_distance to keep the path-loss model finite."
+  },
+
+  "channel": {
+    "path_loss_exponent": 3.0,
+    "shadow_sigma_db": 4.0,
+    "shadow_time_correlation": 0.0,
+    "shadow_decorrelation_distance": 20.0,
+    "noise_floor_dbm": -50.0,
+    "noise_su_offset_std_db": 1.0,
+    "noise_fluctuation_std_db": 0.5,
+    "noise_estimate_error_std_db": 0.3,
+    "_doc": "Pr = Pt * r^(-alpha) * exp(a*beta), a = ln(10)/10, beta ~ N(0, shadow_sigma_db^2) (Chhetry & Marchang, 2021). Measured energy = Pr + noise. shadow_time_correlation is the AR(1) coefficient of each link's shadowing across slots (0 = i.i.d. as in the baseline paper). shadow_decorrelation_distance (m): the attacker's per-link shadowing is correlated with the PU's by c = exp(-|x_att - x_PU| / d) (Gudmundson-type exponential model, d of the order of 10-50 m in the measurement literature); without it a co-located attacker would see shadowing independent of the PU's, which is physically wrong and lets a sequential test exploit PU/attacker switching when shadowing is correlated in time."
+  },
+
+  "pu": {
+    "power_dbm": 30.0
+  },
+
+  "attacker": {
+    "basic_xy": [75.0, 25.0],
+    "basic_power_dbm": 22.0,
+    "_doc": "Default attacker operating point. basic_power_dbm is deliberately NOT power-matched; power-matched variants compute their power from the geometry (see simulation/scenarios.py::matched_power_dbm)."
+  },
+
+  "streams": {
+    "n_slots": 2000,
+    "n_calibration_slots": 1000,
+    "n_xgb_train_pu": 3000,
+    "n_xgb_train_attack": 3000,
+    "xgb_train_attacker_min_distance": 10.0,
+    "xgb_train_attacker_power_offset_db": [-10.0, 10.0],
+    "_doc": "Calibration = PU-only stable stream (thresholds, alpha/sigma estimates, initial profile). XGBoost training = stable PU slots + generic attackers at uniformly random positions (>= min distance from PU) with power = matched power + U(offset range). Test streams use independent random streams."
+  },
+
+  "scenarios": {
+    "stable": {
+      "group": "legitimate",
+      "description": "Legitimate PU only, stationary channel."
+    },
+    "power_drift": {
+      "group": "legitimate",
+      "description": "PU transmit power ramps +6 dB (x4) between slots 400 and 1400.",
+      "drift": {"pu_power_db": {"start": 400, "end": 1400, "delta": 6.0}}
+    },
+    "shadowing_drift": {
+      "group": "legitimate",
+      "description": "Shadowing std ramps 4.0 -> 5.5 dB between slots 400 and 1400.",
+      "drift": {"shadow_sigma_db": {"start": 400, "end": 1400, "delta": 1.5}}
+    },
+    "noise_drift": {
+      "group": "legitimate",
+      "description": "Noise floor rises +4 dB between slots 400 and 1400.",
+      "drift": {"noise_floor_db": {"start": 400, "end": 1400, "delta": 4.0}}
+    },
+    "combined_drift": {
+      "group": "legitimate",
+      "description": "Power +4 dB, shadowing +1 dB, noise +3 dB, all ramped between slots 400 and 1400.",
+      "drift": {
+        "pu_power_db": {"start": 400, "end": 1400, "delta": 4.0},
+        "shadow_sigma_db": {"start": 400, "end": 1400, "delta": 1.0},
+        "noise_floor_db": {"start": 400, "end": 1400, "delta": 3.0}
+      }
+    },
+    "basic_puea": {
+      "group": "attack",
+      "description": "Attacker at basic_xy with basic_power_dbm transmits in 30% of slots after slot 500.",
+      "attack": {"type": "basic", "onset": 500, "rate": 0.3}
+    },
+    "power_matching_puea": {
+      "group": "attack",
+      "description": "Attacker at basic_xy chooses its power so its mean RSS over the SUs equals the PU's (assumes it knows SU positions and alpha).",
+      "attack": {"type": "power_matching", "onset": 500, "rate": 0.3}
+    },
+    "gradual_puea": {
+      "group": "attack",
+      "description": "Open-loop evasion: PU-likeness q steps through the stages; q moves the attacker from basic_xy toward a point min_distance_to_pu from the PU and moves its power from basic_power_dbm to the matched power.",
+      "attack": {
+        "type": "gradual", "onset": 500, "rate": 0.3,
+        "stages": [0.2, 0.4, 0.6, 0.8, 0.95],
+        "min_distance_to_pu": 10.0
+      }
+    },
+    "stealthy_puea": {
+      "group": "attack",
+      "description": "Adaptive attacker placed distance_from_pu from the PU that tracks the PU's (drifting) power every slot and transmits rarely. PU has a +6 dB power drift.",
+      "drift": {"pu_power_db": {"start": 400, "end": 1400, "delta": 6.0}},
+      "attack": {
+        "type": "stealthy", "onset": 500, "rate": 0.15,
+        "distance_from_pu": 20.0, "power_jitter_db": 0.5
+      }
+    },
+    "poisoning": {
+      "group": "attack",
+      "description": "Closed-loop boiling-frog poisoning. Phase 1 (slots < poison_start): PU only. Phase 2: attacker injects poison in poison_rate of slots with progress p in [0,1] interpolating from a PU-mimic (start_distance_from_pu from the PU, power-matched) to the target (basic_xy, basic_power_dbm); p increases by step_up when the slot was NOT flagged (SUs vacated) and decreases by step_down when flagged. Phase 3 (slots >= attack_start): attacker transmits at the target in attack_rate of slots.",
+      "attack": {
+        "type": "poisoning",
+        "poison_start": 300, "attack_start": 1500,
+        "poison_rate": 0.3, "attack_rate": 0.3,
+        "start_distance_from_pu": 12.0,
+        "step_up": 0.02, "step_down": 0.04
+      }
+    },
+    "near_pu_poisoning": {
+      "group": "attack",
+      "description": "Closed-loop poisoning inside the anchor's resolution limit: poison starts 3 m from the PU and the target is 8 m from the PU (toward basic_xy) at matched power + 8 dB.",
+      "attack": {
+        "type": "poisoning",
+        "poison_start": 300, "attack_start": 1500,
+        "poison_rate": 0.3, "attack_rate": 0.3,
+        "start_distance_from_pu": 3.0,
+        "target_distance_from_pu": 8.0, "target_power_offset_db": 8.0,
+        "step_up": 0.02, "step_down": 0.04
+      }
+    },
+    "slow_near_pu_poisoning": {
+      "group": "attack",
+      "description": "Low-duty-cycle version of near_pu_poisoning: poison injected in only 5% of slots (minimises the sequential test's evidence per slot), same start/target points and attack phase.",
+      "attack": {
+        "type": "poisoning",
+        "poison_start": 300, "attack_start": 1500,
+        "poison_rate": 0.05, "attack_rate": 0.3,
+        "start_distance_from_pu": 3.0,
+        "target_distance_from_pu": 8.0, "target_power_offset_db": 8.0,
+        "step_up": 0.02, "step_down": 0.04
+      }
+    }
+  },
+
+  "resolution_sweep": {
+    "_doc": "Anchor-resolution experiment: a power-matched attacker at distance d from the PU (random directions inside the area) transmits every slot of a short stream; we record the fraction of its slots rejected by the physical check (calibrated on PU-only data for the same geometry and channel). Answers: how close must an attacker be to defeat the anchor, and how does that depend on shadowing and the number of SUs?",
+    "distances": [1.0, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0],
+    "shadow_sigmas_db": [4.0, 6.0, 8.0],
+    "n_sus": [10, 20, 40],
+    "n_directions": 8,
+    "n_slots_per_point": 100
+  },
+
+  "features": {
+    "_doc": "Fusion-center-observable features per slot (see src/fc_features.py): the 5 statistics of Chhetry & Marchang computed over the SU RSS vector in dBm, plus mean SNR.",
+    "names": ["rss_mean", "rss_var", "rss_median", "rss_q75", "rss_q25", "snr_mean"]
+  },
+
+  "xgboost": {
+    "_doc": "Hyperparameters copied verbatim from src/train_ensemble.py::train_xgboost so the simulated baseline is the same learner as the repository baseline.",
+    "n_estimators": 250,
+    "max_depth": 6,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "random_state": 42,
+    "decision_threshold": 0.5
+  },
+
+  "physical_consistency": {
+    "statistic": "glrt",
+    "_statistic_doc": "'glrt': Lambda = n*ln(SSR_pu / SSR_min) comparing a fit at the known PU location against the best grid location (sigma-free). 'chi2': SSR_pu / sigma_hat^2 / (n-1) (requires sigma, sensitive to shadowing drift).",
+    "grid_step": 2.5,
+    "fit_alpha_per_slot": false,
+    "min_snr_db": 3.0,
+    "min_valid_sus": 8,
+    "calibration_false_alarm": 0.01,
+    "_threshold_doc": "Threshold = empirical (1 - calibration_false_alarm) quantile of the statistic on the held-out half of the PU-only calibration stream. Never uses test data."
+  },
+
+  "adaptive_profile": {
+    "ewma_lambda": 0.01,
+    "calibration_false_alarm": 0.01,
+    "covariance_ridge": 1e-6,
+    "_doc": "Initial mean/covariance from MinCovDet on the first half of the calibration stream; the Mahalanobis threshold is the empirical (1 - calibration_false_alarm) quantile of d^2 on the second half. Updates are EWMA with ewma_lambda."
+  },
+
+  "sequential": {
+    "_doc": "Sequential drift-invariant location test (src/sequential_spatial.py). window: GLR-CUSUM window in verifiable slots. pfa_per_slot: probability under H0 that the statistic exceeds the threshold in a given slot (threshold by Monte Carlo on N(0, I_2), mc_seed fixed). sigma_lambda: EWMA rate of the shadowing-variance tracker, set equal to adaptive_profile.ewma_lambda so both adaptive components forget at the same rate. Attribution: mixture fit over a coarse grid (coarse_step, the physical-check grid step) plus a fine grid within local_radius of the PU; refitted every refit_every slots while the alarm is on, once at least min_slots_for_fit slots have accumulated since the change point. snapshot_every: profile checkpoint spacing for rollback. An alarm episode opens when the statistic exceeds the threshold and closes after `window` consecutive slots below it (hysteresis added after the first evaluation; see docs/adaptive_puea.md section 11).",
+    "window": 500,
+    "pfa_per_slot": 0.0001,
+    "mc_seed": 0,
+    "sigma_lambda": 0.01,
+    "coarse_step": 2.5,
+    "local_radius": 15.0,
+    "local_step": 1.0,
+    "min_offset": 0.5,
+    "refit_every": 25,
+    "min_slots_for_fit": 20,
+    "snapshot_every": 10
+  },
+
+  "evaluation": {
+    "rolling_window": 100,
+    "oracle_window": 100,
+    "recovery_fpr_tolerance": 0.10,
+    "_doc": "rolling_window: window for rolling FPR/recall curves and adaptation recovery. oracle_window: trailing window over the evaluation-only oracle PU features used as the true legitimate profile mean. Recovery (settling time) = slots from drift onset to the LAST slot at which the rolling FPR exceeds recovery_fpr_tolerance (0 if never exceeded; not recovered if still above at the end of the stream). The tolerance is set well above the ~1-2% calibrated FPR so chance excursions of a 100-slot window rarely trigger it."
+  }
+}
